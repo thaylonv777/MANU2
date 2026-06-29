@@ -132,9 +132,8 @@ depois, sem blocos de markdown e SEM JSON:
 - Entre 750 e 1000 palavras.
 - NAO escreva uma chamada final do tipo "fale conosco" nem CTA no texto: o site
   ja insere um bloco de CTA com o WhatsApp depois do corpo.
-- Termine SEMPRE com <h2>Fontes e referencias</h2> seguido de <ul> com 2 a 4
-  itens HONESTOS (boas praticas de mercado, conceitos amplamente aceitos de vendas
-  e atendimento). Nao invente nome de estudo especifico nem numero.`;
+- NAO inclua secao de "Fontes e referencias". Encerre com um paragrafo de
+  conclusao objetivo.`;
 
   const userPrompt =
 `PALAVRA-CHAVE ALVO: "${alvo.kw}"
