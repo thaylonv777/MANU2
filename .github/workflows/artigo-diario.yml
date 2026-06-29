@@ -1,0 +1,52 @@
+name: Artigo diario (Manu.ia)
+
+# Roda todo dia as 09:00 BRT (12:00 UTC). Tambem pode rodar manualmente.
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  gerar-artigo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Gerar o artigo do dia
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SITE_URL: https://www.manuai.com.br
+          # Opcional: troque o modelo se quiser. Ex: claude-opus-4-8
+          # ANTHROPIC_MODEL: claude-sonnet-4-6
+        run: node scripts/gerar-artigo.mjs
+
+      - name: Abrir Pull Request para revisao
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "feat(blog): novo artigo automatico"
+          branch: artigo/automatico-${{ github.run_id }}
+          delete-branch: true
+          title: "Novo artigo do blog para revisao"
+          body: |
+            Artigo gerado automaticamente pela Manu.ia.
+
+            Antes de aprovar, confira:
+            - Titulo e meta description fazem sentido e nao tem erro factual
+            - O texto esta correto, util e sem alucinacao
+            - A secao "Fontes e referencias" esta coerente
+
+            Aprovar este PR publica o artigo (deploy automatico).
+            Fechar o PR sem merge descarta o artigo.
+          labels: |
+            blog
+            automatico
