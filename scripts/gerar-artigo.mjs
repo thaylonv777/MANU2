@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 /**
  * gerar-artigo.mjs
- * --------------------------------------------------------------
  * Gera 1 artigo por dia para o blog da Manu.ia usando a API da Anthropic.
- * Cada artigo:
- *   - e construido em cima de uma palavra-chave real (lista KEYWORDS)
- *   - segue a voz da marca (site + Instagram da Manu.ia)
- *   - tem SEO profissional (titulo, meta, headings, uso da keyword)
- *   - termina com CTA para o WhatsApp oficial (mesmo numero do site)
- *   - NUNCA promete resultado nem inventa dado/funcionalidade
- *
  * Uso em CI:  node scripts/gerar-artigo.mjs   (precisa de ANTHROPIC_API_KEY)
- * Teste local sem API:
- *   ARTIGO_LOCAL=scripts/exemplo-artigo.json node scripts/gerar-artigo.mjs
- * --------------------------------------------------------------
+ * Teste local: ARTIGO_LOCAL=scripts/exemplo-artigo.json node scripts/gerar-artigo.mjs
  */
 
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 
-// ---------- Configuracao ----------
 const SITE_URL = (process.env.SITE_URL || 'https://www.manuai.com.br').replace(/\/+$/, '');
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
@@ -34,12 +23,8 @@ const SITEMAP = path.join(ROOT, 'sitemap.xml');
 const LOGO = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/logo_principal_dark-removebg.png';
 const OG_IMAGE = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/icon_principal.png';
 const FAVICON = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/icon_navegador.png';
-// CTA oficial - mesmo numero do site. NAO mudar sem mudar no site.
 const WHATSAPP = 'https://wa.me/5551993933653?text=Ol%C3%A1!%20Tenho%20interesse%20na%20Manu.ia.';
 
-// ---------- Palavras-chave alvo (1 artigo = 1 keyword) ----------
-// Filtradas por volume/intencao. Sem concorrentes, sem "gratis".
-// "angulo" e so um norte para a IA; ela escreve o titulo final.
 const KEYWORDS = [
   { kw: 'crm para whatsapp', angulo: 'o que e, para que serve e quando faz sentido para um time de vendas' },
   { kw: 'crm whatsapp', angulo: 'como centralizar conversas e nao perder o historico do cliente' },
@@ -57,7 +42,6 @@ const KEYWORDS = [
   { kw: 'atendimento automatizado no whatsapp', angulo: 'o custo do silencio e da demora para responder um lead' },
 ];
 
-// ---------- Utilidades ----------
 function slugify(txt) {
   return txt.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim()
@@ -67,7 +51,7 @@ function escapeHtml(s = '') {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function hojeISO() {
-  const d = new Date(Date.now() - 3 * 60 * 60 * 1000); // BRT
+  const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
 }
 function dataExtenso(iso) {
@@ -81,7 +65,6 @@ async function lerPosts() {
   try { return JSON.parse(await readFile(POSTS_JSON, 'utf8')); } catch { return []; }
 }
 
-// Escolhe a keyword menos usada recentemente (cicla a lista)
 function escolherKeyword(posts) {
   const usadasRecentes = posts.slice(0, KEYWORDS.length - 1).map((p) => p.keyword);
   const disponiveis = KEYWORDS.filter((k) => !usadasRecentes.includes(k.kw));
@@ -89,7 +72,6 @@ function escolherKeyword(posts) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// ---------- Geracao via API ----------
 async function gerarArtigoViaAPI(alvo, titulosRecentes) {
   const systemPrompt =
 `Voce e redator(a) de conteudo SEO da Manu.ia, escrevendo no padrao de uma boa
@@ -185,9 +167,8 @@ Responda apenas o JSON.`;
   return artigo;
 }
 
-// ---------- Render do artigo ----------
 function renderArtigo(artigo, slug, dataISO) {
-  const url = `${SITE_URL}/blog/${slug}.html`;
+  const url = `${SITE_URL}/blog/${slug}`;
   const titulo = escapeHtml(artigo.titulo);
   const descricao = escapeHtml(artigo.descricao || '');
   const keywords = escapeHtml((artigo.keywords || []).join(', '));
@@ -316,10 +297,9 @@ window.addEventListener('scroll', () => {
 </html>`;
 }
 
-// ---------- Render do indice ----------
 function renderIndice(posts) {
   const cards = posts.map((p) => `
-      <a class="post-card" href="/blog/${escapeHtml(p.slug)}.html">
+      <a class="post-card" href="/blog/${escapeHtml(p.slug)}">
         <span class="post-date">${escapeHtml(dataExtenso(p.data))}</span>
         <h2 class="post-title">${escapeHtml(p.titulo)}</h2>
         <p class="post-desc">${escapeHtml(p.descricao || '')}</p>
@@ -409,7 +389,6 @@ ${cards || '    <p class="empty">Nenhum artigo publicado ainda. Volte em breve.<
 </html>`;
 }
 
-// ---------- Sitemap ----------
 function renderSitemap(posts) {
   const home =
 `  <url>
@@ -426,7 +405,7 @@ function renderSitemap(posts) {
   </url>`;
   const artigos = posts.map((p) =>
 `  <url>
-    <loc>${SITE_URL}/blog/${p.slug}.html</loc>
+    <loc>${SITE_URL}/blog/${p.slug}</loc>
     <lastmod>${p.data}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
@@ -439,7 +418,6 @@ ${artigos}
 `;
 }
 
-// ---------- Principal ----------
 async function main() {
   await mkdir(BLOG_DIR, { recursive: true });
   const posts = await lerPosts();
