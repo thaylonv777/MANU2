@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 /**
  * gerar-artigo.mjs
+ * --------------------------------------------------------------
  * Gera 1 artigo por dia para o blog da Manu.ia usando a API da Anthropic.
+ * Cada artigo:
+ *   - e construido em cima de uma palavra-chave real (lista KEYWORDS)
+ *   - segue a voz da marca (site + Instagram da Manu.ia)
+ *   - tem SEO profissional (titulo, meta, headings, uso da keyword)
+ *   - termina com CTA para o WhatsApp oficial (mesmo numero do site)
+ *   - NUNCA promete resultado nem inventa dado/funcionalidade
+ *
  * Uso em CI:  node scripts/gerar-artigo.mjs   (precisa de ANTHROPIC_API_KEY)
- * Teste local: ARTIGO_LOCAL=scripts/exemplo-artigo.json node scripts/gerar-artigo.mjs
+ * Teste local sem API:
+ *   ARTIGO_LOCAL=scripts/exemplo-artigo.json node scripts/gerar-artigo.mjs
+ * --------------------------------------------------------------
  */
 
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 
+// ---------- Configuracao ----------
 const SITE_URL = (process.env.SITE_URL || 'https://www.manuai.com.br').replace(/\/+$/, '');
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
@@ -23,8 +34,25 @@ const SITEMAP = path.join(ROOT, 'sitemap.xml');
 const LOGO = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/logo_principal_dark-removebg.png';
 const OG_IMAGE = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/icon_principal.png';
 const FAVICON = 'https://raw.githubusercontent.com/thaylonv777/Manu__Ia_/main/icon_navegador.png';
+// CTA oficial - mesmo numero do site. NAO mudar sem mudar no site.
 const WHATSAPP = 'https://wa.me/5551993933653?text=Ol%C3%A1!%20Tenho%20interesse%20na%20Manu.ia.';
 
+// Banco de imagens (arquivos .png na raiz do repo). A IA escolhe por tema,
+// ou deixa vazio quando nenhuma combina. Repetir entre artigos e permitido.
+const IMAGENS = [
+  { arq: 'plataforma-completa', desc: 'visao geral da plataforma Manu.ia (uso geral)' },
+  { arq: 'central-de-atendimento', desc: 'central de atendimento unificado / caixa de conversas' },
+  { arq: 'crm', desc: 'CRM, funil de vendas, cards e gestao de leads' },
+  { arq: 'chatbot', desc: 'chatbot e automacoes de fluxo sem codigo' },
+  { arq: 'disparo-de-campanha-api-oficial', desc: 'disparo de campanha em massa via WhatsApp API oficial' },
+  { arq: 'rastreabilidade-de-campanha', desc: 'relatorios e rastreamento de campanhas' },
+  { arq: 'agente-inteligentes', desc: 'agentes de IA e supervisor de IA atendendo' },
+];
+const IMAGENS_VALIDAS = IMAGENS.map((i) => i.arq);
+
+// ---------- Palavras-chave alvo (1 artigo = 1 keyword) ----------
+// Filtradas por volume/intencao. Sem concorrentes, sem "gratis".
+// "angulo" e so um norte para a IA; ela escreve o titulo final.
 const KEYWORDS = [
   { kw: 'crm para whatsapp', angulo: 'o que e, para que serve e quando faz sentido para um time de vendas' },
   { kw: 'crm whatsapp', angulo: 'como centralizar conversas e nao perder o historico do cliente' },
@@ -42,6 +70,7 @@ const KEYWORDS = [
   { kw: 'atendimento automatizado no whatsapp', angulo: 'o custo do silencio e da demora para responder um lead' },
 ];
 
+// ---------- Utilidades ----------
 function slugify(txt) {
   return txt.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim()
@@ -51,7 +80,7 @@ function escapeHtml(s = '') {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 function hojeISO() {
-  const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const d = new Date(Date.now() - 3 * 60 * 60 * 1000); // BRT
   return d.toISOString().slice(0, 10);
 }
 function dataExtenso(iso) {
@@ -65,6 +94,7 @@ async function lerPosts() {
   try { return JSON.parse(await readFile(POSTS_JSON, 'utf8')); } catch { return []; }
 }
 
+// Escolhe a keyword menos usada recentemente (cicla a lista)
 function escolherKeyword(posts) {
   const usadasRecentes = posts.slice(0, KEYWORDS.length - 1).map((p) => p.keyword);
   const disponiveis = KEYWORDS.filter((k) => !usadasRecentes.includes(k.kw));
@@ -72,6 +102,7 @@ function escolherKeyword(posts) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// ---------- Geracao via API ----------
 async function gerarArtigoViaAPI(alvo, titulosRecentes) {
   const systemPrompt =
 `Voce e redator(a) de conteudo SEO da Manu.ia, escrevendo no padrao de uma boa
@@ -129,18 +160,17 @@ O que a Manu.ia NAO e (posicionamento honesto, use como verdade central):
 IMPORTANTE: relacione o tema do artigo a UMA ou DUAS funcoes especificas acima
 quando fizer sentido (ex: supervisor de IA, CRM no WhatsApp, carteirizacao,
 follow-up automatico), de forma natural e sem parecer anuncio. Nao force todas e sempre em todo artigo frise o nome Manu, ex: Com a Manu você terá um fluxo completo de automação.
-Reforce a marca nos titulos e artigos, na primeira pessoa, não simplesmente como um CRM GENÉRICO.
+Reforce a marca nos titulos e artigos, na primeira pessoa, não simplesmente como um CRM GENÉRICO. 
 
 == REGRAS INEGOCIAVEIS (honestidade) ==
 - NUNCA prometa resultado numerico ("aumente 300% das vendas", "dobre o
   faturamento"). Fale de mecanismo e beneficio, nao de milagre.
 - NUNCA invente estatistica, estudo, percentual ou "pesquisa diz que".
-- NUNCA invente funcionalidade que nao esta na lista acima.
+- NUNCA invente funcionalidade que nao esta descrita acima.
 - NUNCA cite preco, plano ou valores.
 - NUNCA invente telefone, link ou outro canal. O unico CTA e o WhatsApp oficial,
   que ja e inserido pelo site (nao escreva numero de telefone no texto).
 - Tom: claro, direto, profissional, sem jargao vazio e sem "no mundo de hoje".
-- Use acentuacao correta do portugues do Brasil.
 
 == SEO (obrigatorio, nivel profissional) ==
 - O artigo e construido em torno da PALAVRA-CHAVE ALVO informada pelo usuario.
@@ -161,6 +191,11 @@ depois, sem blocos de markdown e SEM JSON:
 (palavra-chave alvo, depois 4 a 6 termos relacionados, separados por virgula)
 ===LEITURA===
 (ex: 5 min)
+===IMAGEM===
+(escolha UM nome exato da lista de imagens abaixo que melhor combine com o tema
+do artigo, ou deixe VAZIO se nenhuma combinar bem. Escreva so o nome, sem .png)
+Imagens disponiveis:
+${IMAGENS.map((i) => `- ${i.arq}: ${i.desc}`).join('\n')}
 ===CORPO===
 (corpo do artigo em HTML semantico)
 
@@ -179,7 +214,7 @@ ANGULO SUGERIDO: ${alvo.angulo}
 
 Escreva o artigo otimizado para essa palavra-chave, seguindo todas as regras.
 Evite repetir estes titulos ja publicados: ${titulosRecentes.join(' | ') || 'nenhum'}.
-Responda apenas no formato com os marcadores.`;
+Responda apenas o JSON.`;
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -213,9 +248,14 @@ Responda apenas no formato com os marcadores.`;
     titulo: corte(raw, '===TITULO===', '===DESCRICAO==='),
     descricao: corte(raw, '===DESCRICAO===', '===KEYWORDS==='),
     keywords: corte(raw, '===KEYWORDS===', '===LEITURA===').split(',').map((s) => s.trim()).filter(Boolean),
-    leitura: corte(raw, '===LEITURA===', '===CORPO==='),
+    leitura: corte(raw, '===LEITURA===', '===IMAGEM==='),
+    imagem: corte(raw, '===IMAGEM===', '===CORPO==='),
     corpoHtml: corte(raw, '===CORPO===', null),
   };
+
+  // valida a imagem: so aceita nome exato da lista; senao, sem imagem
+  const imgLimpa = (artigo.imagem || '').replace(/\.png$/i, '').trim();
+  artigo.imagem = IMAGENS_VALIDAS.includes(imgLimpa) ? imgLimpa : '';
 
   if (!artigo.titulo || !artigo.corpoHtml) {
     throw new Error('Resposta da IA veio sem titulo ou corpo. Resposta bruta:\n' + raw);
@@ -223,8 +263,11 @@ Responda apenas no formato com os marcadores.`;
   return artigo;
 }
 
+// ---------- Render do artigo ----------
 function renderArtigo(artigo, slug, dataISO) {
   const url = `${SITE_URL}/blog/${slug}`;
+  const heroImg = artigo.imagem ? `${SITE_URL}/${artigo.imagem}.png` : '';
+  const ogImg = heroImg || OG_IMAGE;
   const titulo = escapeHtml(artigo.titulo);
   const descricao = escapeHtml(artigo.descricao || '');
   const keywords = escapeHtml((artigo.keywords || []).join(', '));
@@ -232,7 +275,7 @@ function renderArtigo(artigo, slug, dataISO) {
 
   const jsonLd = {
     '@context': 'https://schema.org', '@type': 'Article',
-    headline: artigo.titulo, description: artigo.descricao || '', image: OG_IMAGE,
+    headline: artigo.titulo, description: artigo.descricao || '', image: ogImg,
     datePublished: dataISO, dateModified: dataISO,
     author: { '@type': 'Organization', name: 'Manu.ia' },
     publisher: { '@type': 'Organization', name: 'Manu.ia', logo: { '@type': 'ImageObject', url: LOGO } },
@@ -252,7 +295,7 @@ function renderArtigo(artigo, slug, dataISO) {
 <meta property="og:type" content="article">
 <meta property="og:title" content="${titulo}">
 <meta property="og:description" content="${descricao}">
-<meta property="og:image" content="${OG_IMAGE}">
+<meta property="og:image" content="${ogImg}">
 <meta property="og:url" content="${url}">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
@@ -321,6 +364,7 @@ footer { padding: 40px 24px; border-top: 1px solid rgba(255,255,255,0.05); margi
       <span>${dataExtenso(dataISO)}</span>
       ${leitura ? `<span>&middot; ${leitura} de leitura</span>` : ''}
     </div>
+    ${heroImg ? `<img src="${heroImg}" alt="${titulo}" style="width:100%;height:auto;border-radius:16px;border:1px solid rgba(255,255,255,0.08);margin-bottom:40px;display:block;">` : ''}
     <div class="prose">
 ${artigo.corpoHtml}
     </div>
@@ -353,6 +397,7 @@ window.addEventListener('scroll', () => {
 </html>`;
 }
 
+// ---------- Render do indice ----------
 function renderIndice(posts) {
   const cards = posts.map((p) => `
       <a class="post-card" href="/blog/${escapeHtml(p.slug)}">
@@ -445,6 +490,7 @@ ${cards || '    <p class="empty">Nenhum artigo publicado ainda. Volte em breve.<
 </html>`;
 }
 
+// ---------- Sitemap ----------
 function renderSitemap(posts) {
   const home =
 `  <url>
@@ -474,6 +520,7 @@ ${artigos}
 `;
 }
 
+// ---------- Principal ----------
 async function main() {
   await mkdir(BLOG_DIR, { recursive: true });
   const posts = await lerPosts();
@@ -508,6 +555,7 @@ async function main() {
   await writeFile(SITEMAP, renderSitemap(posts), 'utf8');
   console.log(`[ok] indice e sitemap atualizados. Total: ${posts.length}`);
 
+  // Exporta o slug e o titulo para o workflow montar o link de preview
   if (process.env.GITHUB_OUTPUT) {
     await writeFile(process.env.GITHUB_OUTPUT, `slug=${slug}\ntitulo=${artigo.titulo}\n`, { flag: 'a' });
   }
